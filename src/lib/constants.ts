@@ -73,4 +73,4 @@ export const SIDEBAR_ITEMS = [
 export const MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1";
 export const MIMO_MODEL = "mimo-v2.5-pro";
 export const MIMO_PROVIDER_LABEL = "小米 MiMo";
-export const MIMO_TIMEOUT_MS = 30_000;
+export const MIMO_TIMEOUT_MS = 45_000;
