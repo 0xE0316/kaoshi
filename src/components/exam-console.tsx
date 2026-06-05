@@ -953,10 +953,14 @@ function ShipmentsPanel({
   shipments: ShipmentSearchResult | null;
   onPageChange: (page: number) => void;
 }) {
+  const orders = shipments?.orders ?? [];
+  const totalOrders = shipments?.totalOrders ?? orders.length;
+  const totalPages = shipments ? Math.ceil(totalOrders / shipments.pageSize) : 0;
+
   return (
     <Panel
-      title="已导入运单列表"
-      description="这里展示的是行级明细，方便快速筛查和回看。"
+      title="已导入出库单列表"
+      description="这里按外部编码聚合展示，同一外部编码下的多个 SKU 共享一组收货信息。"
       icon={<FileText className="h-4 w-4" />}
     >
       <div className="overflow-hidden rounded-[18px] border border-[rgba(15,198,194,0.12)]">
@@ -966,32 +970,29 @@ function ShipmentsPanel({
               <tr>
                 <th className="px-4 py-3 font-semibold">外部编码</th>
                 <th className="px-4 py-3 font-semibold">门店 / 收件人</th>
-                <th className="px-4 py-3 font-semibold">SKU</th>
-                <th className="px-4 py-3 font-semibold">数量</th>
+                <th className="px-4 py-3 font-semibold">SKU 数</th>
+                <th className="px-4 py-3 font-semibold">合计数量</th>
                 <th className="px-4 py-3 font-semibold">导入时间</th>
               </tr>
             </thead>
             <tbody>
-              {shipments?.rows.length ? (
-                shipments.rows.map((row) => (
-                  <tr key={row.id} className="border-t border-[rgba(15,198,194,0.08)] text-slate-700">
-                    <td className="px-4 py-3 font-medium">{row.externalCode || "--"}</td>
+              {orders.length ? (
+                orders.map((order) => (
+                  <tr key={order.id} className="border-t border-[rgba(15,198,194,0.08)] text-slate-700">
+                    <td className="px-4 py-3 font-medium">{order.externalCode || "--"}</td>
                     <td className="px-4 py-3">
-                      <div>{row.storeName || "--"}</div>
-                      <div className="mt-1 text-xs text-slate-400">{row.recipientName || "未填写收件人"}</div>
+                      <div>{order.storeName || "--"}</div>
+                      <div className="mt-1 text-xs text-slate-400">{order.recipientName || "未填写收件人"}</div>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{row.skuCode}</div>
-                      <div className="mt-1 text-xs text-slate-400">{row.skuName}</div>
-                    </td>
-                    <td className="px-4 py-3">{row.skuQty}</td>
-                    <td className="px-4 py-3 text-slate-500">{formatDateTime(row.createdAt)}</td>
+                    <td className="px-4 py-3">{order.skuCount}</td>
+                    <td className="px-4 py-3">{order.totalQty}</td>
+                    <td className="px-4 py-3 text-slate-500">{formatDateTime(order.createdAt)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center text-slate-400">
-                    还没有历史运单，先去“导入解析”完成一批数据吧。
+                    还没有历史出库单，先去“导入解析”完成一批数据吧。
                   </td>
                 </tr>
               )}
@@ -1000,10 +1001,10 @@ function ShipmentsPanel({
         </div>
       </div>
 
-      {shipments && shipments.total > shipments.pageSize && (
+      {shipments && totalOrders > shipments.pageSize && (
         <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
           <div>
-            共 {shipments.total} 行，第 {shipments.page} / {Math.ceil(shipments.total / shipments.pageSize)} 页
+            共 {totalOrders} 张出库单，第 {shipments.page} / {totalPages} 页
           </div>
           <div className="flex gap-2">
             <button
@@ -1017,7 +1018,7 @@ function ShipmentsPanel({
               type="button"
               onClick={() =>
                 onPageChange(
-                  Math.min(Math.ceil(shipments.total / shipments.pageSize), shipments.page + 1),
+                  Math.min(totalPages, shipments.page + 1),
                 )
               }
               className="rounded-full border border-[rgba(15,198,194,0.16)] px-4 py-2 hover:bg-[#f8fcfe]"

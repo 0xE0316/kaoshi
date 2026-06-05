@@ -13,6 +13,7 @@ import type {
   ShipmentSearchResult,
 } from "@/lib/types";
 import { makeId } from "@/lib/utils";
+import { groupShipmentRows } from "@/lib/validation";
 
 let schemaReady = false;
 let schemaReadyPromise: Promise<void> | null = null;
@@ -258,12 +259,16 @@ export async function listShipmentRows(params: ShipmentSearchParams = {}): Promi
   }));
 
   const filtered = rows.filter((row) => matchShipmentRow(row, params));
+  const orders = groupShipmentRows(filtered);
   const start = (page - 1) * pageSize;
   const paged = filtered.slice(start, start + pageSize);
+  const pagedOrders = orders.slice(start, start + pageSize);
 
   return {
     rows: paged,
+    orders: pagedOrders,
     total: filtered.length,
+    totalOrders: orders.length,
     page,
     pageSize,
     batches,

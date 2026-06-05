@@ -283,7 +283,9 @@ export type ShipmentSearchParams = {
 
 export type ShipmentSearchResult = {
   rows: ShipmentRow[];
+  orders: ShipmentOrder[];
   total: number;
+  totalOrders: number;
   page: number;
   pageSize: number;
   batches: ImportBatchSummary[];
