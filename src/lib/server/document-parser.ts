@@ -1,7 +1,6 @@
 import path from "path";
 
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 import * as XLSX from "xlsx";
 
 import type {
@@ -13,6 +12,7 @@ import type {
 import { coerceString } from "@/lib/utils";
 
 let pdfWorkerReady = false;
+let pdfParseModulePromise: Promise<typeof import("pdf-parse")> | null = null;
 
 export async function normalizeUploadedDocument(input: {
   buffer: Buffer;
@@ -138,7 +138,8 @@ function normalizeExcelDocument(buffer: Buffer, fileName: string): NormalizedDoc
 }
 
 async function normalizePdfDocument(buffer: Buffer, fileName: string): Promise<NormalizedDocument> {
-  ensurePdfWorker();
+  const { PDFParse } = await loadPdfParseModule();
+  ensurePdfWorker(PDFParse);
   const parser = new PDFParse({ data: buffer });
   const parsed = await parser.getText();
   const fullText = parsed.text.replace(/\r/g, "").trim();
@@ -161,7 +162,161 @@ async function normalizePdfDocument(buffer: Buffer, fileName: string): Promise<N
   };
 }
 
-function ensurePdfWorker() {
+async function loadPdfParseModule() {
+  if (!pdfParseModulePromise) {
+    pdfParseModulePromise = (async () => {
+      installPdfDomPolyfills();
+      return import("pdf-parse");
+    })();
+  }
+
+  return pdfParseModulePromise;
+}
+
+function installPdfDomPolyfills() {
+  const mutableGlobal = globalThis as typeof globalThis & {
+    DOMMatrix?: typeof DOMMatrix;
+    ImageData?: typeof ImageData;
+    Path2D?: typeof Path2D;
+  };
+
+  mutableGlobal.DOMMatrix ??= ServerDOMMatrix as unknown as typeof DOMMatrix;
+  mutableGlobal.ImageData ??= ServerImageData as unknown as typeof ImageData;
+  mutableGlobal.Path2D ??= ServerPath2D as unknown as typeof Path2D;
+}
+
+class ServerDOMMatrix {
+  a = 1;
+  b = 0;
+  c = 0;
+  d = 1;
+  e = 0;
+  f = 0;
+  m11 = 1;
+  m12 = 0;
+  m13 = 0;
+  m14 = 0;
+  m21 = 0;
+  m22 = 1;
+  m23 = 0;
+  m24 = 0;
+  m31 = 0;
+  m32 = 0;
+  m33 = 1;
+  m34 = 0;
+  m41 = 0;
+  m42 = 0;
+  m43 = 0;
+  m44 = 1;
+
+  constructor(init?: string | number[]) {
+    if (Array.isArray(init) && init.length >= 6) {
+      this.a = Number(init[0]) || 1;
+      this.b = Number(init[1]) || 0;
+      this.c = Number(init[2]) || 0;
+      this.d = Number(init[3]) || 1;
+      this.e = Number(init[4]) || 0;
+      this.f = Number(init[5]) || 0;
+      this.syncAliases();
+    }
+  }
+
+  scaleSelf(scaleX = 1, scaleY = scaleX) {
+    this.a *= scaleX;
+    this.d *= scaleY;
+    this.syncAliases();
+    return this;
+  }
+
+  translateSelf(tx = 0, ty = 0) {
+    this.e += tx;
+    this.f += ty;
+    this.syncAliases();
+    return this;
+  }
+
+  multiplySelf() {
+    return this;
+  }
+
+  preMultiplySelf() {
+    return this;
+  }
+
+  invertSelf() {
+    return this;
+  }
+
+  transformPoint(point?: DOMPointInit) {
+    const x = point?.x ?? 0;
+    const y = point?.y ?? 0;
+    return {
+      x: this.a * x + this.c * y + this.e,
+      y: this.b * x + this.d * y + this.f,
+      z: point?.z ?? 0,
+      w: point?.w ?? 1,
+    };
+  }
+
+  toFloat32Array() {
+    return Float32Array.from(this.toArray());
+  }
+
+  toFloat64Array() {
+    return Float64Array.from(this.toArray());
+  }
+
+  private syncAliases() {
+    this.m11 = this.a;
+    this.m12 = this.b;
+    this.m21 = this.c;
+    this.m22 = this.d;
+    this.m41 = this.e;
+    this.m42 = this.f;
+  }
+
+  private toArray() {
+    return [
+      this.m11,
+      this.m12,
+      this.m13,
+      this.m14,
+      this.m21,
+      this.m22,
+      this.m23,
+      this.m24,
+      this.m31,
+      this.m32,
+      this.m33,
+      this.m34,
+      this.m41,
+      this.m42,
+      this.m43,
+      this.m44,
+    ];
+  }
+}
+
+class ServerImageData {
+  readonly data: Uint8ClampedArray;
+  readonly width: number;
+  readonly height: number;
+  readonly colorSpace = "srgb";
+
+  constructor(data: Uint8ClampedArray, width: number, height?: number) {
+    this.data = data;
+    this.width = width;
+    this.height = height ?? Math.max(1, Math.floor(data.length / 4 / Math.max(1, width)));
+  }
+}
+
+class ServerPath2D {
+  constructor(path?: Path2D | string) {
+    void path;
+  }
+}
+
+function ensurePdfWorker(PDFParse: typeof import("pdf-parse").PDFParse) {
   if (pdfWorkerReady) {
     return;
   }
