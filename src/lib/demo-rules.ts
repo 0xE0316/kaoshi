@@ -91,7 +91,12 @@ export const demoRules: DocumentRule[] = [
       dynamicStopHeaders: ["下单后结余"],
       dynamicHeaderField: "storeName",
       dynamicValueField: "skuQty",
+      dynamicHeaderMappings: [
+        { field: "externalCode", source: { kind: "dynamicHeader" } },
+        { field: "storeName", source: { kind: "dynamicHeader" } },
+      ],
       skipZero: true,
+      rowFilters: [{ kind: "notEmpty", source: { kind: "header", header: "SKU名称" } }],
       fixedMappings: [
         { field: "skuCode", source: { kind: "header", header: "外部商品编码", fallbackHeaders: ["SKU条码"] } },
         { field: "skuName", source: { kind: "header", header: "SKU名称" } },
@@ -126,6 +131,7 @@ export const demoRules: DocumentRule[] = [
         { field: "remark", source: { kind: "header", header: "备注" } },
       ],
       sharedMappings: [
+        { field: "externalCode", source: { kind: "sheetName" } },
         { field: "storeName", source: { kind: "label", label: "收货门店：" } },
         { field: "recipientName", source: { kind: "label", label: "联系人：" } },
         { field: "recipientPhone", source: { kind: "label", label: "联系电话：" } },
@@ -150,6 +156,11 @@ export const demoRules: DocumentRule[] = [
       sheetSelector: { mode: "first" },
       blockStartPattern: "^▶\\s*调拨记录",
       metaMappings: [
+        {
+          field: "externalCode",
+          source: { kind: "regex", pattern: "调拨记录\\s*#(\\d+)" },
+          transforms: [{ kind: "prepend", value: "CARD-" }],
+        },
         { field: "storeName", source: { kind: "label", label: "调入门店" } },
         { field: "recipientName", source: { kind: "label", label: "收货人" } },
         { field: "recipientPhone", source: { kind: "label", label: "电话" } },
@@ -247,7 +258,22 @@ export const demoRules: DocumentRule[] = [
       dynamicColumnStart: 3,
       dynamicHeaderField: "remark",
       dynamicValueField: "skuQty",
+      dynamicHeaderMappings: [
+        {
+          field: "externalCode",
+          source: {
+            kind: "template",
+            template: "{storeName}-{date}",
+            sources: {
+              storeName: { kind: "header", header: "门店", fallbackHeaders: ["门店名称"] },
+              date: { kind: "dynamicHeader" },
+            },
+          },
+        },
+        { field: "remark", source: { kind: "dynamicHeader" } },
+      ],
       fixedMappings: [{ field: "storeName", source: { kind: "header", header: "门店", fallbackHeaders: ["门店名称"] } }],
+      rowFilters: [{ kind: "notEmpty", source: { kind: "header", header: "门店", fallbackHeaders: ["门店名称"] } }],
       cellItemPattern:
         "(?<skuName>[^xX×*＊\\n]+)[xX×*＊](?<skuQty>\\d+(?:\\.\\d+)?)",
       cellItemFlags: "g",

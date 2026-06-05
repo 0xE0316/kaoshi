@@ -1,6 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
-
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
 import { MIMO_MODEL, MIMO_PROVIDER_LABEL } from "@/lib/constants";
@@ -8,23 +5,14 @@ import { demoRules } from "@/lib/demo-rules";
 import type {
   DashboardSnapshot,
   DocumentRule,
+  ExistingExternalCodeRef,
   ImportBatchSummary,
   ShipmentOrder,
   ShipmentRow,
   ShipmentSearchParams,
   ShipmentSearchResult,
 } from "@/lib/types";
-import { deepClone, makeId } from "@/lib/utils";
-
-type StoreShape = {
-  seeded: boolean;
-  rules: DocumentRule[];
-  shipmentRows: ShipmentRow[];
-  batches: ImportBatchSummary[];
-};
-
-const dataDir = path.join(process.cwd(), ".data");
-const dataFile = path.join(dataDir, "app-data.json");
+import { makeId } from "@/lib/utils";
 
 let schemaReady = false;
 let schemaReadyPromise: Promise<void> | null = null;
@@ -40,6 +28,13 @@ export class DuplicateExternalCodeError extends Error {
     super(`外部编码已存在：${externalCodes.join("、")}`);
     this.name = "DuplicateExternalCodeError";
     this.externalCodes = externalCodes;
+  }
+}
+
+export class DatabaseNotConfiguredError extends Error {
+  constructor() {
+    super("缺少 DATABASE_URL 或 POSTGRES_URL，规则和运单必须持久化到 Neon/Postgres。");
+    this.name = "DatabaseNotConfiguredError";
   }
 }
 
@@ -62,55 +57,37 @@ function getSqlClient(): SqlClient | null {
   return cachedSqlClient;
 }
 
-async function ensureStoreSeeded() {
+function getRequiredSqlClient(): SqlClient {
   const sql = getSqlClient();
-  if (sql) {
-    await ensurePgSchema(sql);
-    if (!builtInRulesSynced) {
-      for (const rule of demoRules) {
-        await upsertRulePg(sql, rule);
-      }
-      builtInRulesSynced = true;
-    }
-    return;
+  if (!sql) {
+    throw new DatabaseNotConfiguredError();
   }
+  return sql;
+}
 
-  const store = await readFileStore();
-  if (store.seeded) {
-    if (!builtInRulesSynced) {
-      store.rules = mergeBuiltInRules(store.rules);
-      await writeFileStore(store);
-      builtInRulesSynced = true;
+async function ensureStoreSeeded() {
+  const sql = getRequiredSqlClient();
+  await ensurePgSchema(sql);
+  if (!builtInRulesSynced) {
+    for (const rule of demoRules) {
+      await upsertRulePg(sql, rule);
     }
-    return;
+    builtInRulesSynced = true;
   }
-
-  store.seeded = true;
-  store.rules = mergeBuiltInRules(store.rules);
-  builtInRulesSynced = true;
-  await writeFileStore(store);
 }
 
 export async function listRules() {
   await ensureStoreSeeded();
-  const sql = getSqlClient();
+  const sql = getRequiredSqlClient();
+  const rows = await sql`
+    select definition
+    from parse_rules
+    order by is_template asc, updated_at desc
+  `;
 
-  if (sql) {
-    const rows = await sql`
-      select definition
-      from parse_rules
-      order by is_template asc, updated_at desc
-    `;
-
-    return rows
-      .map((item) => normalizeRuleRecord(item.definition))
-      .filter(Boolean) as DocumentRule[];
-  }
-
-  const store = await readFileStore();
-  return deepClone(
-    store.rules.sort((left, right) => Number(Boolean(left.isTemplate)) - Number(Boolean(right.isTemplate))),
-  );
+  return rows
+    .map((item) => normalizeRuleRecord(item.definition))
+    .filter(Boolean) as DocumentRule[];
 }
 
 export async function getRule(ruleId: string) {
@@ -124,57 +101,38 @@ export async function saveRule(rule: DocumentRule) {
     ...rule,
     updatedAt: new Date().toISOString(),
   };
-  const sql = getSqlClient();
-
-  if (sql) {
-    await upsertRulePg(sql, nextRule);
-    return nextRule;
-  }
-
-  const store = await readFileStore();
-  const index = store.rules.findIndex((item) => item.id === nextRule.id);
-  if (index >= 0) {
-    store.rules[index] = nextRule;
-  } else {
-    store.rules.unshift(nextRule);
-  }
-  await writeFileStore(store);
+  const sql = getRequiredSqlClient();
+  await upsertRulePg(sql, nextRule);
   return nextRule;
 }
 
 export async function deleteRule(ruleId: string) {
-  const sql = getSqlClient();
-  if (sql) {
-    await ensurePgSchema(sql);
-    await sql`delete from parse_rules where id = ${ruleId}`;
-    return;
-  }
-
-  const store = await readFileStore();
-  store.rules = store.rules.filter((item) => item.id !== ruleId);
-  await writeFileStore(store);
+  const sql = getRequiredSqlClient();
+  await ensurePgSchema(sql);
+  await sql`delete from parse_rules where id = ${ruleId}`;
 }
 
 export async function listExistingExternalCodes() {
-  const sql = getSqlClient();
-  if (sql) {
-    await ensurePgSchema(sql);
-    const rows = await sql`
-      select external_code
-      from shipment_orders
-      where external_code is not null and external_code <> ''
-      union
-      select distinct external_code
-      from shipment_rows
-      where external_code is not null and external_code <> ''
-    `;
-    return rows.map((item) => String(item.external_code));
-  }
+  const refs = await listExistingExternalCodeRefs();
+  return refs.map((item) => item.externalCode);
+}
 
-  const store = await readFileStore();
-  return Array.from(
-    new Set(store.shipmentRows.map((item) => item.externalCode.trim()).filter(Boolean)),
-  );
+export async function listExistingExternalCodeRefs(): Promise<ExistingExternalCodeRef[]> {
+  const sql = getRequiredSqlClient();
+  await ensurePgSchema(sql);
+  const rows = await sql`
+    select external_code, id, batch_id, created_at
+    from shipment_orders
+    where external_code is not null and external_code <> ''
+    order by created_at desc
+  `;
+
+  return rows.map((item) => ({
+    externalCode: String(item.external_code),
+    orderId: String(item.id),
+    batchId: String(item.batch_id),
+    createdAt: new Date(String(item.created_at)).toISOString(),
+  }));
 }
 
 export async function submitShipmentBatch(input: {
@@ -199,120 +157,105 @@ export async function submitShipmentBatch(input: {
   }));
   const orders = buildShipmentOrders(rows, batch.createdAt);
 
-  const sql = getSqlClient();
-  if (sql) {
-    await ensurePgSchema(sql);
-    try {
-      await sql.transaction((txn) => [
-        txn`
-          insert into import_batches (id, file_name, rule_id, row_count, success_count, failed_count, created_at)
-          values (${batch.id}, ${batch.fileName}, ${batch.ruleId}, ${batch.rowCount}, ${batch.successCount}, ${batch.failedCount}, ${batch.createdAt}::timestamptz)
-        `,
-        ...orders.map((order) => txn`
-          insert into shipment_orders (
-            id, batch_id, external_code, store_name, recipient_name, recipient_phone,
-            recipient_address, sku_count, total_qty, row_ids, created_at, payload
-          ) values (
-            ${order.id},
-            ${batch.id},
-            ${order.externalCode},
-            ${order.storeName},
-            ${order.recipientName},
-            ${order.recipientPhone},
-            ${order.recipientAddress},
-            ${order.skuCount},
-            ${String(order.totalQty)},
-            ${JSON.stringify(order.rowIds)}::jsonb,
-            ${batch.createdAt}::timestamptz,
-            ${JSON.stringify(order)}::jsonb
-          )
-        `),
-        ...rows.map((row) => txn`
-          insert into shipment_rows (
-            id, batch_id, source_file_name, external_code, store_name, recipient_name, recipient_phone,
-            recipient_address, sku_code, sku_name, sku_qty, sku_spec, temperature_zone, remark, created_at, payload
-          ) values (
-            ${row.id},
-            ${batch.id},
-            ${row.sourceFileName ?? batch.fileName},
-            ${row.externalCode},
-            ${row.storeName},
-            ${row.recipientName},
-            ${row.recipientPhone},
-            ${row.recipientAddress},
-            ${row.skuCode},
-            ${row.skuName},
-            ${row.skuQty || "0"},
-            ${row.skuSpec},
-            ${row.temperatureZone},
-            ${row.remark},
-            ${row.createdAt}::timestamptz,
-            ${JSON.stringify(row)}::jsonb
-          )
-        `),
-      ]);
-    } catch (error) {
-      const conflicts = await findConflictingExternalCodes(orders.map((order) => order.externalCode));
-      if (conflicts.length) {
-        throw new DuplicateExternalCodeError(conflicts);
-      }
-      throw error;
-    }
-
-    return batch;
-  }
-
-  const store = await readFileStore();
-  const existing = new Set(store.shipmentRows.map((item) => item.externalCode.trim()).filter(Boolean));
-  const conflicts = orders.map((order) => order.externalCode).filter((code) => existing.has(code));
+  const sql = getRequiredSqlClient();
+  await ensurePgSchema(sql);
+  const conflicts = await findConflictingExternalCodes(orders.map((order) => order.externalCode));
   if (conflicts.length) {
     throw new DuplicateExternalCodeError(conflicts);
   }
 
-  store.batches.unshift(batch);
-  store.shipmentRows.unshift(...rows);
-  await writeFileStore(store);
+  try {
+    await sql.transaction((txn) => [
+      txn`
+        insert into import_batches (id, file_name, rule_id, row_count, success_count, failed_count, created_at)
+        values (${batch.id}, ${batch.fileName}, ${batch.ruleId}, ${batch.rowCount}, ${batch.successCount}, ${batch.failedCount}, ${batch.createdAt}::timestamptz)
+      `,
+      ...orders.map((order) => txn`
+        insert into shipment_orders (
+          id, batch_id, external_code, store_name, recipient_name, recipient_phone,
+          recipient_address, sku_count, total_qty, row_ids, created_at, payload
+        ) values (
+          ${order.id},
+          ${batch.id},
+          ${order.externalCode.trim() || null},
+          ${order.storeName},
+          ${order.recipientName},
+          ${order.recipientPhone},
+          ${order.recipientAddress},
+          ${order.skuCount},
+          ${String(order.totalQty)},
+          ${JSON.stringify(order.rowIds)}::jsonb,
+          ${batch.createdAt}::timestamptz,
+          ${JSON.stringify(order)}::jsonb
+        )
+      `),
+      ...rows.map((row) => txn`
+        insert into shipment_rows (
+          id, batch_id, source_file_name, external_code, store_name, recipient_name, recipient_phone,
+          recipient_address, sku_code, sku_name, sku_qty, sku_spec, temperature_zone, remark, created_at, payload
+        ) values (
+          ${row.id},
+          ${batch.id},
+          ${row.sourceFileName ?? batch.fileName},
+          ${row.externalCode.trim() || null},
+          ${row.storeName},
+          ${row.recipientName},
+          ${row.recipientPhone},
+          ${row.recipientAddress},
+          ${row.skuCode},
+          ${row.skuName},
+          ${row.skuQty || "0"},
+          ${row.skuSpec},
+          ${row.temperatureZone},
+          ${row.remark},
+          ${row.createdAt}::timestamptz,
+          ${JSON.stringify(row)}::jsonb
+        )
+      `),
+    ]);
+  } catch (error) {
+    const nextConflicts = await findConflictingExternalCodes(orders.map((order) => order.externalCode));
+    if (nextConflicts.length) {
+      throw new DuplicateExternalCodeError(nextConflicts);
+    }
+    throw error;
+  }
+
   return batch;
 }
 
 export async function listShipmentRows(params: ShipmentSearchParams = {}): Promise<ShipmentSearchResult> {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.max(10, Math.min(100, params.pageSize ?? 20));
-  const sql = getSqlClient();
+  const sql = getRequiredSqlClient();
 
   let rows: ShipmentRow[] = [];
   let batches: ImportBatchSummary[] = [];
 
-  if (sql) {
-    await ensurePgSchema(sql);
-    const shipmentRows = await sql`
-      select payload
-      from shipment_rows
-      order by created_at desc
-      limit 5000
-    `;
-    rows = shipmentRows.map((item) => normalizeShipmentRecord(item.payload)).filter(Boolean) as ShipmentRow[];
+  await ensurePgSchema(sql);
+  const shipmentRows = await sql`
+    select payload
+    from shipment_rows
+    order by created_at desc
+    limit 5000
+  `;
+  rows = shipmentRows.map((item) => normalizeShipmentRecord(item.payload)).filter(Boolean) as ShipmentRow[];
 
-    const batchRows = await sql`
-      select id, file_name, rule_id, row_count, success_count, failed_count, created_at
-      from import_batches
-      order by created_at desc
-      limit 100
-    `;
-    batches = batchRows.map((item) => ({
-      id: String(item.id),
-      fileName: String(item.file_name),
-      ruleId: String(item.rule_id),
-      rowCount: Number(item.row_count),
-      successCount: Number(item.success_count),
-      failedCount: Number(item.failed_count),
-      createdAt: new Date(String(item.created_at)).toISOString(),
-    }));
-  } else {
-    const store = await readFileStore();
-    rows = deepClone(store.shipmentRows);
-    batches = deepClone(store.batches);
-  }
+  const batchRows = await sql`
+    select id, file_name, rule_id, row_count, success_count, failed_count, created_at
+    from import_batches
+    order by created_at desc
+    limit 100
+  `;
+  batches = batchRows.map((item) => ({
+    id: String(item.id),
+    fileName: String(item.file_name),
+    ruleId: String(item.rule_id),
+    rowCount: Number(item.row_count),
+    successCount: Number(item.success_count),
+    failedCount: Number(item.failed_count),
+    createdAt: new Date(String(item.created_at)).toISOString(),
+  }));
 
   const filtered = rows.filter((row) => matchShipmentRow(row, params));
   const start = (page - 1) * pageSize;
@@ -355,22 +298,20 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
 }
 
 async function findConflictingExternalCodes(codes: string[]) {
-  if (!codes.length) {
+  const normalizedCodes = codes.map((code) => code.trim()).filter(Boolean);
+  if (!normalizedCodes.length) {
     return [];
   }
 
   const existing = new Set(await listExistingExternalCodes());
-  return Array.from(new Set(codes.filter((code) => existing.has(code))));
+  return Array.from(new Set(normalizedCodes.filter((code) => existing.has(code))));
 }
 
 function buildShipmentOrders(rows: ShipmentRow[], createdAt: string): ShipmentOrder[] {
   const grouped = new Map<string, ShipmentRow[]>();
 
   rows.forEach((row) => {
-    const externalCode = row.externalCode.trim();
-    if (!externalCode) {
-      return;
-    }
+    const externalCode = row.externalCode.trim() || `__blank__${row.id}`;
     grouped.set(externalCode, [...(grouped.get(externalCode) ?? []), row]);
   });
 
@@ -378,7 +319,7 @@ function buildShipmentOrders(rows: ShipmentRow[], createdAt: string): ShipmentOr
     const first = items[0];
     return {
       id: makeId("order"),
-      externalCode,
+      externalCode: externalCode.startsWith("__blank__") ? "" : externalCode,
       storeName: first.storeName,
       recipientName: first.recipientName,
       recipientPhone: first.recipientPhone,
@@ -392,22 +333,6 @@ function buildShipmentOrders(rows: ShipmentRow[], createdAt: string): ShipmentOr
       createdAt,
     };
   });
-}
-
-function mergeBuiltInRules(rules: DocumentRule[]) {
-  const nextRules = deepClone(rules);
-  const builtInRules = deepClone(demoRules);
-
-  builtInRules.forEach((rule) => {
-    const index = nextRules.findIndex((item) => item.id === rule.id);
-    if (index >= 0) {
-      nextRules[index] = rule;
-    } else {
-      nextRules.push(rule);
-    }
-  });
-
-  return nextRules;
 }
 
 async function ensurePgSchema(sql: SqlClient) {
@@ -443,7 +368,7 @@ async function ensurePgSchema(sql: SqlClient) {
         create table if not exists shipment_orders (
           id text primary key,
           batch_id text not null,
-          external_code text not null unique,
+          external_code text,
           store_name text,
           recipient_name text,
           recipient_phone text,
@@ -455,6 +380,8 @@ async function ensurePgSchema(sql: SqlClient) {
           payload jsonb not null
         )
       `;
+      await sql`alter table shipment_orders alter column external_code drop not null`;
+      await sql`alter table shipment_orders drop constraint if exists shipment_orders_external_code_key`;
       await sql`
         create table if not exists shipment_rows (
           id text primary key,
@@ -478,6 +405,11 @@ async function ensurePgSchema(sql: SqlClient) {
       await sql`create index if not exists shipment_rows_external_code_idx on shipment_rows (external_code)`;
       await sql`create index if not exists shipment_rows_created_at_idx on shipment_rows (created_at desc)`;
       await sql`create index if not exists shipment_orders_created_at_idx on shipment_orders (created_at desc)`;
+      await sql`
+        create unique index if not exists shipment_orders_external_code_unique_idx
+        on shipment_orders (external_code)
+        where external_code is not null and external_code <> ''
+      `;
 
       schemaReady = true;
     })().finally(() => {
@@ -510,29 +442,6 @@ async function upsertRulePg(sql: SqlClient, rule: DocumentRule) {
       is_template = excluded.is_template,
       updated_at = excluded.updated_at
   `;
-}
-
-async function readFileStore(): Promise<StoreShape> {
-  await fs.mkdir(dataDir, { recursive: true });
-
-  try {
-    const content = await fs.readFile(dataFile, "utf8");
-    return JSON.parse(content) as StoreShape;
-  } catch {
-    const initial: StoreShape = {
-      seeded: false,
-      rules: [],
-      shipmentRows: [],
-      batches: [],
-    };
-    await writeFileStore(initial);
-    return initial;
-  }
-}
-
-async function writeFileStore(store: StoreShape) {
-  await fs.mkdir(dataDir, { recursive: true });
-  await fs.writeFile(dataFile, JSON.stringify(store, null, 2), "utf8");
 }
 
 function normalizeRuleRecord(value: unknown) {

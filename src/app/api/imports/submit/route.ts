@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { ImportBatchSummary, ShipmentRow } from "@/lib/types";
 import {
   DuplicateExternalCodeError,
-  listExistingExternalCodes,
+  listExistingExternalCodeRefs,
   submitShipmentBatch,
 } from "@/lib/server/storage";
 import { validateShipmentRows } from "@/lib/validation";
@@ -25,8 +25,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "没有可提交的数据。" }, { status: 400 });
   }
 
-  const issues = validateShipmentRows(rows, await listExistingExternalCodes());
-  if (issues.length) {
+  const issues = validateShipmentRows(rows, await listExistingExternalCodeRefs());
+  const blockingIssues = issues.filter((issue) => issue.severity === "error");
+  if (blockingIssues.length) {
     return NextResponse.json({ error: "数据存在校验错误。", issues }, { status: 400 });
   }
 

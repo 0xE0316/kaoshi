@@ -27,6 +27,7 @@ import type {
   DashboardSnapshot,
   DocumentRule,
   DocumentSummary,
+  ExistingExternalCodeRef,
   ImportBatchSummary,
   ParsePreviewResult,
   RowIssue,
@@ -93,7 +94,7 @@ export function ExamConsole() {
   const [previewIssues, setPreviewIssues] = useState<RowIssue[]>([]);
   const [parseProgress, setParseProgress] = useState<{ value: number; label: string } | null>(null);
   const [submitProgress, setSubmitProgress] = useState<{ value: number; label: string } | null>(null);
-  const [existingExternalCodes, setExistingExternalCodes] = useState<string[]>([]);
+  const [existingExternalCodes, setExistingExternalCodes] = useState<ExistingExternalCodeRef[]>([]);
 
   useEffect(() => {
     let cancelled = false;

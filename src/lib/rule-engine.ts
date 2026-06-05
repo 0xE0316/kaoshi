@@ -1,6 +1,7 @@
 import {
   type CardBlocksExtractor,
   type DocumentRule,
+  type ExistingExternalCodeRef,
   type FieldDefault,
   type FieldMapping,
   type MatrixColumnsExtractor,
@@ -21,7 +22,7 @@ import { coerceString } from "@/lib/utils";
 import { makeBlankShipmentRow, validateShipmentRows } from "@/lib/validation";
 
 type ParseOptions = {
-  existingExternalCodes?: string[];
+  existingExternalCodes?: ExistingExternalCodeRef[];
   runLlmStructuredParse?: (
     document: NormalizedDocument,
     rule: DocumentRule,
@@ -162,6 +163,10 @@ function parseMatrixColumnsExtractor(
         break;
       }
 
+      if (!passesRowFilters(currentRow, extractor.rowFilters, { sheet, header, currentRow })) {
+        continue;
+      }
+
       const baseRow = resolveFieldMappings(extractor.fixedMappings, {
         sheet,
         header,
@@ -186,6 +191,15 @@ function parseMatrixColumnsExtractor(
           continue;
         }
 
+        const dynamicMappings = resolveDynamicHeaderMappings(extractor, {
+          sheet,
+          header,
+          currentRow,
+          rowsScope: sheet.rows,
+          textScope: joinRows(sheet.rows),
+          dynamicHeader,
+        });
+
         if (extractor.cellItemPattern) {
           const matches = collectPatternMatches(
             currentValue,
@@ -197,7 +211,7 @@ function parseMatrixColumnsExtractor(
             const row = applyDefaults(extractor.defaults, {
               ...shared,
               ...baseRow,
-              [extractor.dynamicHeaderField]: dynamicHeader,
+              ...dynamicMappings,
               ...mapNamedGroups(match.groups, extractor.cellItemGroupMap),
             });
 
@@ -216,7 +230,7 @@ function parseMatrixColumnsExtractor(
         const row = applyDefaults(extractor.defaults, {
           ...shared,
           ...baseRow,
-          [extractor.dynamicHeaderField]: dynamicHeader,
+          ...dynamicMappings,
           [extractor.dynamicValueField]: currentValue,
         });
 
@@ -429,6 +443,16 @@ function resolveFieldMappings(mappings: FieldMapping[], context: SheetContext) {
   }, {});
 }
 
+function resolveDynamicHeaderMappings(extractor: MatrixColumnsExtractor, context: SheetContext) {
+  if (extractor.dynamicHeaderMappings?.length) {
+    return resolveFieldMappings(extractor.dynamicHeaderMappings, context);
+  }
+
+  return {
+    [extractor.dynamicHeaderField]: coerceString(context.dynamicHeader),
+  } as Partial<ShipmentRow>;
+}
+
 function resolveValueSource(source: ValueSource, context: SheetContext) {
   switch (source.kind) {
     case "header": {
@@ -454,6 +478,19 @@ function resolveValueSource(source: ValueSource, context: SheetContext) {
       const regex = new RegExp(source.pattern, source.flags);
       const match = regex.exec(text);
       return coerceString(match?.[source.group ?? 1] ?? "");
+    }
+    case "sheetName":
+      return context.sheet.name;
+    case "template": {
+      const values = Object.entries(source.sources).reduce<Record<string, string>>(
+        (accumulator, [key, valueSource]) => {
+          accumulator[key] = resolveValueSource(valueSource, context);
+          return accumulator;
+        },
+        {},
+      );
+
+      return source.template.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? "");
     }
     case "static":
       return source.value;

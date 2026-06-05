@@ -1,5 +1,7 @@
 import { FIELD_LABELS, TEMPERATURE_OPTIONS } from "@/lib/constants";
-import type { RowIssue, ShipmentOrder, ShipmentRow } from "@/lib/types";
+import type { ExistingExternalCodeRef, RowIssue, ShipmentOrder, ShipmentRow } from "@/lib/types";
+
+type ExistingExternalCodeInput = string | ExistingExternalCodeRef;
 
 export function makeBlankShipmentRow(overrides: Partial<ShipmentRow> = {}): ShipmentRow {
   return {
@@ -19,11 +21,12 @@ export function makeBlankShipmentRow(overrides: Partial<ShipmentRow> = {}): Ship
   };
 }
 
-export function validateShipmentRows(rows: ShipmentRow[], existingExternalCodes: string[] = []) {
+export function validateShipmentRows(
+  rows: ShipmentRow[],
+  existingExternalCodes: ExistingExternalCodeInput[] = [],
+) {
   const issues: RowIssue[] = [];
-  const trimmedExisting = new Set(
-    existingExternalCodes.map((item) => item.trim()).filter(Boolean),
-  );
+  const existingRefMap = buildExistingExternalCodeMap(existingExternalCodes);
   const batchDuplicateMap = new Map<string, Array<{ rowNo: number; row: ShipmentRow }>>();
 
   rows.forEach((row, index) => {
@@ -95,8 +98,16 @@ export function validateShipmentRows(rows: ShipmentRow[], existingExternalCodes:
       items.push({ rowNo, row });
       batchDuplicateMap.set(key, items);
 
-      if (trimmedExisting.has(key)) {
-        issues.push(issue(row.id, rowNo, "externalCode", "与历史导入数据重复"));
+      const existingRef = existingRefMap.get(key);
+      if (existingRef) {
+        issues.push(
+          issue(
+            row.id,
+            rowNo,
+            "externalCode",
+            `与历史导入数据重复${formatExistingRef(existingRef)}`,
+          ),
+        );
       }
     }
   });
@@ -174,6 +185,40 @@ function issue(rowId: string, rowIndex: number, field: keyof typeof FIELD_LABELS
     severity: "error",
     message,
   };
+}
+
+function buildExistingExternalCodeMap(existingExternalCodes: ExistingExternalCodeInput[]) {
+  const map = new Map<string, ExistingExternalCodeRef>();
+
+  existingExternalCodes.forEach((item) => {
+    if (typeof item === "string") {
+      const externalCode = item.trim();
+      if (externalCode) {
+        map.set(externalCode, { externalCode });
+      }
+      return;
+    }
+
+    const externalCode = item.externalCode.trim();
+    if (externalCode) {
+      map.set(externalCode, item);
+    }
+  });
+
+  return map;
+}
+
+function formatExistingRef(ref: ExistingExternalCodeRef) {
+  const importedAt = ref.createdAt ? new Date(ref.createdAt) : null;
+  const details = [
+    ref.orderId ? `运单 ${ref.orderId}` : "",
+    ref.batchId ? `批次 ${ref.batchId}` : "",
+    importedAt && Number.isFinite(importedAt.getTime())
+      ? `导入时间 ${new Intl.DateTimeFormat("zh-CN").format(importedAt)}`
+      : "",
+  ].filter(Boolean);
+
+  return details.length ? `（${details.join("，")}）` : "";
 }
 
 function isValidChinaPhone(value: string) {

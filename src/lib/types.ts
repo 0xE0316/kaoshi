@@ -19,6 +19,8 @@ export type ValueSource =
   | { kind: "label"; label: string; direction?: "right" | "down"; occurrence?: number }
   | { kind: "cell"; row: number; column: number }
   | { kind: "regex"; pattern: string; group?: number; flags?: string }
+  | { kind: "sheetName" }
+  | { kind: "template"; template: string; sources: Record<string, ValueSource> }
   | { kind: "static"; value: string }
   | { kind: "dynamicHeader" };
 
@@ -93,9 +95,11 @@ export type MatrixColumnsExtractor = {
   dynamicStopHeaders?: string[];
   fixedMappings: FieldMapping[];
   sharedMappings?: FieldMapping[];
+  dynamicHeaderMappings?: FieldMapping[];
   dynamicHeaderField: ShipmentField;
   dynamicValueField: ShipmentField;
   stopConditions?: StopCondition[];
+  rowFilters?: RowFilter[];
   skipZero?: boolean;
   cellItemPattern?: string;
   cellItemFlags?: string;
@@ -209,6 +213,13 @@ export type RowIssue = {
   severity: "error" | "warning";
 };
 
+export type ExistingExternalCodeRef = {
+  externalCode: string;
+  orderId?: string;
+  batchId?: string;
+  createdAt?: string;
+};
+
 export type NormalizedSheet = {
   name: string;
   rows: string[][];
@@ -248,7 +259,7 @@ export type ParsePreviewResult = {
   durationMs: number;
   rule: DocumentRule;
   documentSummary: DocumentSummary;
-  existingExternalCodes?: string[];
+  existingExternalCodes?: ExistingExternalCodeRef[];
 };
 
 export type ImportBatchSummary = {
