@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "db:migrate": "tsx scripts/migrate.ts",
+    "qstash:schedules": "tsx scripts/configure-qstash-schedules.ts",
     "seed:load-test": "tsx scripts/seed-data.ts",
     "seed:load-test:file": "LOAD_TEST_FILE_ONLY=true tsx scripts/seed-data.ts",
     "load-test": "tsx scripts/load-test.ts",

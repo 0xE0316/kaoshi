@@ -32,7 +32,7 @@ MIMO_MODEL=mimo-v2.5-pro
 ## 异步链路
 
 1. `POST /api/import-tasks` 使用预览阶段已知的 `totalRows`，只保存文件并在同一事务创建任务和 `ImportTaskCreated` Outbox 事件后立即返回；完整解析只在 Worker 执行。
-2. Dispatcher 将 Outbox 可靠投递到 QStash；投递失败指数退避，Cron 可恢复未投递事件。
+2. Dispatcher 将 Outbox 可靠投递到 QStash；投递失败指数退避，QStash Schedule 可恢复未投递事件。
 3. Parse Worker 只解析一次原文件并复用现有规则引擎，将标准行批量暂存。
 4. Parse Worker 创建每 500 行一个的 `ImportBatchCreated` Outbox 事件。
 5. Batch Worker 一次批量查询 SKU，以集合 SQL 批量写回原有 `shipment_orders / shipment_rows`，失败行批量写错误表；历史查询继续复用原有运单数据源。
@@ -72,6 +72,14 @@ npm test
 npm run build
 ```
 
-部署前必须在目标数据库执行 `npm run db:migrate`。生产请求默认不执行 V4 DDL；仅紧急兼容时可显式设置 `ALLOW_RUNTIME_SCHEMA_MIGRATION=true`。Vercel 需配置每分钟调用 `/api/import-dispatcher`，每五分钟调用 `/api/import-cron/recover`。QStash 队列配置为批次并发 4、解析并发 2；监控页会显示队列、积压、死信、失败任务和慢批次告警。
+部署前必须在目标数据库执行 `npm run db:migrate`。生产请求默认不执行 V4 DDL；仅紧急兼容时可显式设置 `ALLOW_RUNTIME_SCHEMA_MIGRATION=true`。
+
+Vercel Hobby 不使用 Vercel Cron。生产首次部署并获得 HTTPS 域名后，在本地提供与 Vercel 相同的 `QSTASH_TOKEN` 和 `CRON_SECRET`，执行：
+
+```bash
+QSTASH_SCHEDULE_BASE_URL=https://your-project.vercel.app npm run qstash:schedules
+```
+
+脚本会幂等替换带 `kaoshi-v4` 标签的两个计划任务：每分钟调用 `/api/import-dispatcher`，每五分钟调用 `/api/import-cron/recover`。请求使用 `Authorization: Bearer <CRON_SECRET>`，QStash 日志会脱敏该请求头。QStash 队列配置为批次并发 4、解析并发 2；监控页会显示队列、积压、死信、失败任务和慢批次告警。
 
 详细设计见 [docs/V4-重构假设说明.md](docs/V4-重构假设说明.md)、[docs/V4-架构与接口.md](docs/V4-架构与接口.md) 和 [docs/V4-压测报告.md](docs/V4-压测报告.md)。
