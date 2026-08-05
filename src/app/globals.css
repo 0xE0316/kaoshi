@@ -36,6 +36,10 @@ body {
   min-height: 100%;
 }
 
+main .grid > * {
+  min-width: 0;
+}
+
 button,
 input,
 select,
@@ -50,4 +54,27 @@ textarea {
 pre {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.field {
+  width: 100%;
+  border: 1px solid #dce7ed;
+  border-radius: 6px;
+  background: #fff;
+  padding: 0.68rem 0.8rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.field:focus {
+  border-color: #0fc6c2;
+  box-shadow: 0 0 0 3px rgba(15, 198, 194, 0.1);
+}
+
+.mini {
+  border: 1px solid #a8e5e2;
+  border-radius: 5px;
+  padding: 0.38rem 0.62rem;
+  color: #0b7775;
+  white-space: nowrap;
 }

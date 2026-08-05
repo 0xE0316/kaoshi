@@ -1,0 +1,4 @@
+import * as XLSX from "xlsx";
+import { getImportTask, listTaskErrors } from "@/lib/server/async-import-storage";
+export const runtime="nodejs";
+export async function GET(_:Request,context:{params:Promise<{taskId:string}>}){const {taskId}=await context.params;if(!await getImportTask(taskId))return Response.json({error:"任务不存在"},{status:404});const data=await listTaskErrors(taskId,{page:1,pageSize:10000});const sheet=XLSX.utils.json_to_sheet(data.items.map(e=>({批次:e.batchIndex,行号:e.rowNumber,字段:e.fieldName,原始值:e.rawValue,错误码:e.errorCode,原因:e.errorReason,修复建议:e.suggestion,TraceID:e.traceId})));const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,sheet,"失败明细");const output=XLSX.write(book,{type:"array",bookType:"xlsx"}) as ArrayBuffer;return new Response(output,{headers:{"content-type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","content-disposition":`attachment; filename="${taskId}-errors.xlsx"`}});}

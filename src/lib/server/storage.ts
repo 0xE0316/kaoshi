@@ -135,7 +135,6 @@ export async function listExistingExternalCodeRefs(): Promise<ExistingExternalCo
     createdAt: new Date(String(item.created_at)).toISOString(),
   }));
 }
-
 export async function submitShipmentBatch(input: {
   fileName: string;
   ruleId: string;
@@ -425,6 +424,11 @@ async function ensurePgSchema(sql: SqlClient) {
   }
 
   await schemaReadyPromise;
+}
+
+export async function ensureV2Schema() {
+  const sql = getRequiredSqlClient();
+  await ensurePgSchema(sql);
 }
 
 async function upsertRulePg(sql: SqlClient, rule: DocumentRule) {

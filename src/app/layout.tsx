@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "万能导入 V2 | 智能多格式批量下单系统",
+  title: "智能多格式批量下单系统",
   description: "Next.js App Router + TypeScript + 规则引擎 + 小米 MiMo 的物流智能导入项目",
 };
 

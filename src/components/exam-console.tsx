@@ -22,13 +22,13 @@ import {
 } from "lucide-react";
 
 import { PreviewTable } from "@/components/preview-table";
+import { SystemNav } from "@/components/system-nav";
 import { FIELD_LABELS, PREVIEW_COLUMNS, SECTION_ITEMS } from "@/lib/constants";
 import type {
   DashboardSnapshot,
   DocumentRule,
   DocumentSummary,
   ExistingExternalCodeRef,
-  ImportBatchSummary,
   ParsePreviewResult,
   RowIssue,
   ShipmentField,
@@ -91,6 +91,7 @@ export function ExamConsole() {
   const [documentSummary, setDocumentSummary] = useState<DocumentSummary | null>(null);
   const [aiNotes, setAiNotes] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<ShipmentRow[]>([]);
+  const [parsedPreviewRows, setParsedPreviewRows] = useState<ShipmentRow[]>([]);
   const [previewIssues, setPreviewIssues] = useState<RowIssue[]>([]);
   const [parseProgress, setParseProgress] = useState<{ value: number; label: string } | null>(null);
   const [submitProgress, setSubmitProgress] = useState<{ value: number; label: string } | null>(null);
@@ -205,6 +206,7 @@ export function ExamConsole() {
   function applySelectedFile(nextFile: File | null) {
     setSelectedFile(nextFile);
     setPreviewRows([]);
+    setParsedPreviewRows([]);
     setPreviewIssues([]);
     setExistingExternalCodes([]);
     if (nextFile) {
@@ -219,6 +221,7 @@ export function ExamConsole() {
     setAiNotes([]);
     setDocumentSummary(null);
     setPreviewRows([]);
+    setParsedPreviewRows([]);
     setPreviewIssues([]);
     setExistingExternalCodes([]);
     pushToast("success", "已新建一份空白规则草稿，可以直接修改或让 AI 继续补全。");
@@ -336,6 +339,7 @@ export function ExamConsole() {
       const data = await postForm<ParsePreviewResult>("/api/parse/preview", formData);
       setParseProgress({ value: 86, label: `正在整理预览结果，已处理 ${data.rows.length}/${data.rows.length} 条` });
       setPreviewRows(data.rows);
+      setParsedPreviewRows(data.rows);
       setPreviewIssues(data.issues);
       setExistingExternalCodes(data.existingExternalCodes ?? []);
       setDocumentSummary(data.documentSummary);
@@ -415,23 +419,20 @@ export function ExamConsole() {
     setSubmitProgress({ value: 18, label: "正在检查并去重" });
 
     try {
-      await sleep(150);
-      setSubmitProgress({ value: 42, label: "正在保存导入结果" });
-      const data = await postJson<{
-        batch: ImportBatchSummary;
-        summary: { successCount: number; failedCount: number };
-      }>("/api/imports/submit", {
-        fileName: selectedFile?.name ?? "manual-import.xlsx",
-        ruleId: currentRule?.id ?? "manual",
-        rows: previewRows,
-      });
-      setSubmitProgress({ value: 100, label: "提交完成" });
-      pushToast(
-        "success",
-        `提交成功：成功 ${data.summary.successCount} 行，失败 ${data.summary.failedCount} 行。`,
-      );
-      await Promise.all([refreshDashboard(), refreshShipments()]);
-      setActiveSection("shipments");
+      if (!selectedFile || !currentRule?.id) throw new Error("异步导入需要原始文件和已保存规则。");
+      if (!rules.some((rule) => rule.id === currentRule.id)) throw new Error("正式提交前请先保存当前规则草稿。");
+      const formData = new FormData();
+      formData.set("file", selectedFile);
+      formData.set("ruleId", currentRule.id);
+      formData.set("totalRows", String(previewRows.length));
+      if (JSON.stringify(previewRows) !== JSON.stringify(parsedPreviewRows)) {
+        formData.set("confirmedRows", JSON.stringify(previewRows));
+      }
+      setSubmitProgress({ value: 42, label: "正在创建异步任务" });
+      const data = await postForm<{ task_id: string; trace_id: string }>("/api/import-tasks", formData);
+      setSubmitProgress({ value: 100, label: "任务已创建" });
+      pushToast("success", `异步任务已创建：${data.task_id}`);
+      window.location.assign(`/monitor?task_id=${encodeURIComponent(data.task_id)}`);
     } catch (error) {
       if (error instanceof ApiError && error.payload.issues?.length) {
         setPreviewIssues(error.payload.issues);
@@ -475,17 +476,19 @@ export function ExamConsole() {
             <div className="rounded-[24px] border border-[rgba(15,198,194,0.12)] bg-[linear-gradient(180deg,#f7fcfe_0%,#eff8fc_100%)] px-5 py-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div className="max-w-4xl">
-                  <div className="text-sm font-semibold text-[#0f8b99]">万能导入 V2</div>
+                  <div className="text-sm font-semibold text-[#0f8b99]">智能多格式批量下单系统</div>
                   <h1 className="mt-2 text-[28px] font-semibold tracking-normal text-slate-900">多格式批量下单工作台</h1>
                   <p className="mt-2 text-sm leading-7 text-slate-500">
                     把客户给来的 Excel、Word、PDF 整理成可下单数据。先选规则试解析，确认无误后再提交。
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <div className="flex flex-col items-start gap-2 text-xs text-slate-500 xl:items-end">
+                  <SystemNav current="import" />
+                  <div className="flex flex-wrap gap-2">
                   <span className="rounded-full border border-[rgba(15,198,194,0.16)] bg-white px-3 py-1.5 font-semibold text-slate-700">
                     当前区域：{currentSectionMeta?.label}
                   </span>
-                  <span className="rounded-full bg-white/80 px-3 py-1.5">{currentSectionMeta?.helper}</span>
+                  <span className="rounded-full bg-white/80 px-3 py-1.5">{currentSectionMeta?.helper}</span></div>
                 </div>
               </div>
             </div>

@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/import-dispatcher", "schedule": "* * * * *" },
+    { "path": "/api/import-cron/recover", "schedule": "*/5 * * * *" }
+  ]
+}

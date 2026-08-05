@@ -6,10 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "seed:load-test": "tsx scripts/seed-data.ts",
+    "seed:load-test:file": "LOAD_TEST_FILE_ONLY=true tsx scripts/seed-data.ts",
+    "load-test": "tsx scripts/load-test.ts",
+    "cleanup:load-test": "tsx scripts/cleanup-load-test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@upstash/qstash": "^2.11.3",
     "clsx": "^2.1.1",
     "lucide-react": "^1.17.0",
     "mammoth": "^1.12.0",
@@ -30,6 +37,8 @@
     "eslint-config-next": "16.2.7",
     "playwright": "^1.60.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.5",
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }
