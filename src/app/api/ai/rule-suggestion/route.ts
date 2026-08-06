@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { parseDocumentWithRule } from "@/lib/rule-engine";
 import type { DocumentRule } from "@/lib/types";
 import { normalizeUploadedDocument } from "@/lib/server/document-parser";
-import { hasMimoCredentials, suggestRuleWithMimo } from "@/lib/server/mimo";
+import { hasKimiCredentials, suggestRuleWithKimi } from "@/lib/server/kimi";
 import { buildHeuristicRule } from "@/lib/server/rule-suggestion";
 
 export const runtime = "nodejs";
@@ -27,21 +27,21 @@ export async function POST(request: Request) {
   let provider = "heuristic";
   const notes = [heuristicRule.aiSummary ?? "已生成启发式规则初稿。"];
 
-  if (hasMimoCredentials()) {
+  if (hasKimiCredentials()) {
     try {
-      const aiRule = await suggestRuleWithMimo({
+      const aiRule = await suggestRuleWithKimi({
         document,
         heuristicRule,
       });
       const normalizedRule = normalizeSuggestedRule(aiRule, heuristicRule);
       rule = await stabilizeSuggestedRule(document, normalizedRule, heuristicRule, notes);
-      provider = "mimo";
-      notes.unshift("已通过 MiMo 补全字段映射与规则说明。");
+      provider = "kimi";
+      notes.unshift("已通过 Kimi 补全字段映射与规则说明。");
     } catch (error) {
-      notes.unshift(error instanceof Error ? error.message : "MiMo 规则生成失败，已回退到启发式规则。");
+      notes.unshift(error instanceof Error ? error.message : "Kimi 规则生成失败，已回退到启发式规则。");
     }
   } else {
-    notes.unshift("未配置 MIMO_API_KEY，当前展示的是本地启发式规则。");
+    notes.unshift("未配置 KIMI_API_KEY，当前展示的是本地启发式规则。");
   }
 
   return NextResponse.json({

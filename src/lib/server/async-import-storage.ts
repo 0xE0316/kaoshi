@@ -575,7 +575,7 @@ export async function searchTrace(params: { traceId?: string; taskId?: string; f
 
 export async function monitorSummary(): Promise<MonitorSummary> {
   await ensureAsyncImportSchema(); const sql = db();
-  const [queue, throughput, taskPerf, batchPerf, errors, slow, failed, deadLetters] = await Promise.all([
+  const [queue, throughput, taskPerf, batchPerf, errors, slow, failed, deadLetters, recentQueueFailures] = await Promise.all([
     sql`select count(*)::int batches,coalesce(sum(end_row-start_row+1),0)::int rows from import_task_batches where status in('pending','processing')`,
     sql`select date_trunc('minute',completed_at) as time_bucket,sum(success_rows)::int rows from import_task_batches where completed_at>now()-interval '5 minutes' group by 1 order by 1`,
     sql`select percentile_cont(array[.5,.95,.99]) within group(order by parse_duration_ms) parse,percentile_cont(array[.5,.95,.99]) within group(order by rule_duration_ms) rule from import_tasks where created_at>now()-interval '24 hours' and parse_status='completed'`,
@@ -584,6 +584,7 @@ export async function monitorSummary(): Promise<MonitorSummary> {
     sql`select task_id,unit_id,batch_index,total_duration_ms from batch_performance_log order by total_duration_ms desc limit 10`,
     sql`select date_trunc('minute',completed_at) as time_bucket,count(*)::int count from import_tasks where status='failed' and completed_at>now()-interval '24 hours' group by 1 order by 1`,
     sql`select count(*)::int count from event_outbox where status='failed' and retry_count>=5`,
+    sql`select count(*)::int count from event_outbox where status='failed' and created_at>now()-interval '15 minutes'`,
   ]);
   const totalErrors = errors.reduce((sum, row) => sum + Number(row.count), 0);
   const percentile = (value: unknown, index: number) => Array.isArray(value) ? Number(value[index] ?? 0) : 0;
@@ -591,12 +592,14 @@ export async function monitorSummary(): Promise<MonitorSummary> {
   for (const key of ["parse", "rule"] as const) durations[key] = { p50: percentile(taskPerf[0]?.[key], 0), p95: percentile(taskPerf[0]?.[key], 1), p99: percentile(taskPerf[0]?.[key], 2) };
   for (const key of ["validate", "insert", "total"] as const) durations[key] = { p50: percentile(batchPerf[0]?.[key], 0), p95: percentile(batchPerf[0]?.[key], 1), p99: percentile(batchPerf[0]?.[key], 2) };
   const pendingRows = Number(queue[0]?.rows ?? 0);
-  const queueAvailable = Boolean(process.env.QSTASH_TOKEN);
+  const recentQueueFailureCount = Number(recentQueueFailures[0]?.count ?? 0);
+  const queueAvailable = Boolean(process.env.QSTASH_TOKEN) && recentQueueFailureCount === 0;
   const failedTaskCount = failed.reduce((sum, row) => sum + Number(row.count), 0);
   const deadLetterCount = Number(deadLetters[0]?.count ?? 0);
   const slowBatchCount = slow.filter((row) => Number(row.total_duration_ms) >= 10_000).length;
   const alerts: MonitorSummary["alerts"] = [];
-  if (!queueAvailable) alerts.push({ type: "queue", severity: "critical", message: "QStash 队列未配置或不可用", count: 1 });
+  if (!process.env.QSTASH_TOKEN) alerts.push({ type: "queue", severity: "critical", message: "QStash 队列未配置", count: 1 });
+  else if (recentQueueFailureCount) alerts.push({ type: "queue", severity: "critical", message: "QStash 最近投递失败，请检查 Token 与网络", count: recentQueueFailureCount });
   else if (pendingRows > 5_000) alerts.push({ type: "queue", severity: "warning", message: "待处理行数超过 5,000", count: pendingRows });
   if (deadLetterCount) alerts.push({ type: "dead_letter", severity: "critical", message: "Outbox 事件重试耗尽", count: deadLetterCount });
   if (failedTaskCount) alerts.push({ type: "failed_task", severity: "critical", message: "过去 24 小时存在失败任务", count: failedTaskCount });

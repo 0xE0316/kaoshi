@@ -23,10 +23,10 @@ beforeEach(() => {
 describe("Outbox dispatcher recovery", () => {
   it("leaves a failed event retryable and sends it on a later dispatch", async () => {
     publishJSON.mockRejectedValueOnce(new Error("queue unavailable")).mockResolvedValueOnce({ messageId: "msg-1" });
-    await expect(dispatchOutbox("http://localhost")).resolves.toMatchObject({ sent: 0, failed: 1 });
+    await expect(dispatchOutbox("http://localhost")).resolves.toMatchObject({ sent: 0, failed: 1, available: false });
     expect(storage.markOutboxFailed).toHaveBeenCalledWith("outbox-1", "queue unavailable");
 
-    await expect(dispatchOutbox("http://localhost")).resolves.toMatchObject({ sent: 1, failed: 0 });
+    await expect(dispatchOutbox("http://localhost")).resolves.toMatchObject({ sent: 1, failed: 0, available: true });
     expect(storage.markOutboxSent).toHaveBeenCalledWith("outbox-1");
   });
 });

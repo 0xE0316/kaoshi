@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { parseDocumentWithRule } from "@/lib/rule-engine";
 import { normalizeUploadedDocument } from "@/lib/server/document-parser";
-import { parseStructuredRowsWithMimo } from "@/lib/server/mimo";
+import { parseStructuredRowsWithKimi } from "@/lib/server/kimi";
 import { getRule, listExistingExternalCodeRefs } from "@/lib/server/storage";
 import type { DocumentRule } from "@/lib/types";
 
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     const preview = await parseDocumentWithRule(document, rule, {
       existingExternalCodes,
       runLlmStructuredParse: (currentDocument, currentRule) =>
-        parseStructuredRowsWithMimo({
+        parseStructuredRowsWithKimi({
           document: currentDocument,
           rule: currentRule,
         }),

@@ -42,7 +42,7 @@ export async function buildHeuristicRule(document: NormalizedDocument): Promise<
       {
         field: "extractor",
         level: "guess",
-        message: "当前文档结构不够稳定，建议通过 MiMo 先生成规则，再手动微调。",
+        message: "当前文档结构不够稳定，建议通过 Kimi 先生成规则，再手动微调。",
       },
     ],
     extractor: {

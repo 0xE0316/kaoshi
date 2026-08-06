@@ -1,6 +1,6 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
-import { MIMO_MODEL, MIMO_PROVIDER_LABEL } from "@/lib/constants";
+import { KIMI_MODEL, KIMI_PROVIDER_LABEL } from "@/lib/constants";
 import { demoRules } from "@/lib/demo-rules";
 import type {
   DashboardSnapshot,
@@ -296,7 +296,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     batchCount: shipments.batches.length,
     duplicateExternalCodeCount,
     strategyCount: new Set(rules.map((rule) => rule.extractor.kind)).size,
-    providerLabel: `${MIMO_PROVIDER_LABEL} / ${process.env.MIMO_MODEL ?? MIMO_MODEL}`,
+    providerLabel: `${KIMI_PROVIDER_LABEL} / ${process.env.KIMI_MODEL ?? KIMI_MODEL}`,
     lastImportedAt,
   };
 }

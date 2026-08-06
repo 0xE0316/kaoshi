@@ -1,27 +1,36 @@
 import {
-  MIMO_BASE_URL,
-  MIMO_MODEL,
-  MIMO_PROVIDER_LABEL,
-  MIMO_TIMEOUT_MS,
+  KIMI_BASE_URL,
+  KIMI_MAX_RETRIES,
+  KIMI_MODEL,
+  KIMI_PROVIDER_LABEL,
+  KIMI_TIMEOUT_MS,
 } from "@/lib/constants";
 import type { DocumentRule, NormalizedDocument, ShipmentRow } from "@/lib/types";
 import { extractFirstJsonObject, safeJsonParse } from "@/lib/utils";
 import { makeBlankShipmentRow } from "@/lib/validation";
 
-type MimoMessage = {
+type KimiMessage = {
   role: "system" | "user" | "assistant";
   content: string;
 };
 
-export function hasMimoCredentials() {
-  return Boolean(process.env.MIMO_API_KEY);
+type KimiChatResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+};
+
+export function hasKimiCredentials() {
+  return Boolean(process.env.KIMI_API_KEY);
 }
 
-export async function suggestRuleWithMimo(input: {
+export async function suggestRuleWithKimi(input: {
   document: NormalizedDocument;
   heuristicRule: DocumentRule;
 }) {
-  const response = await callMimoChat([
+  const response = await callKimiChat([
     {
       role: "system",
       content:
@@ -62,11 +71,11 @@ export async function suggestRuleWithMimo(input: {
   );
 }
 
-export async function parseStructuredRowsWithMimo(input: {
+export async function parseStructuredRowsWithKimi(input: {
   document: NormalizedDocument;
   rule: DocumentRule;
 }) {
-  const response = await callMimoChat([
+  const response = await callKimiChat([
     {
       role: "system",
       content:
@@ -98,27 +107,39 @@ export async function parseStructuredRowsWithMimo(input: {
   };
 }
 
-async function callMimoChat(messages: MimoMessage[]) {
-  const apiKey = process.env.MIMO_API_KEY;
+async function callKimiChat(messages: KimiMessage[]) {
+  const apiKey = process.env.KIMI_API_KEY;
   if (!apiKey) {
-    throw new Error(`缺少 MIMO_API_KEY，无法调用 ${MIMO_PROVIDER_LABEL}。`);
+    throw new Error(`缺少 KIMI_API_KEY，无法调用 ${KIMI_PROVIDER_LABEL}。`);
   }
 
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= KIMI_MAX_RETRIES; attempt += 1) {
+    try {
+      return await requestKimiChat(apiKey, messages);
+    } catch (error) {
+      lastError = error;
+      if (attempt === KIMI_MAX_RETRIES || !isRetryable(error)) throw error;
+      await delay(500 * 2 ** attempt);
+    }
+  }
+  throw lastError;
+}
+
+async function requestKimiChat(apiKey: string, messages: KimiMessage[]) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MIMO_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), KIMI_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${process.env.MIMO_BASE_URL ?? MIMO_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${trimTrailingSlash(process.env.KIMI_BASE_URL ?? KIMI_BASE_URL)}/chat/completions`, {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "api-key": apiKey,
       },
       body: JSON.stringify({
-        model: process.env.MIMO_MODEL ?? MIMO_MODEL,
-        temperature: 0.2,
-        thinking: { type: "disabled" },
-        max_completion_tokens: 1800,
+        model: process.env.KIMI_MODEL ?? KIMI_MODEL,
+        max_tokens: 1800,
         stream: false,
         messages,
       }),
@@ -126,32 +147,42 @@ async function callMimoChat(messages: MimoMessage[]) {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`${MIMO_PROVIDER_LABEL} 调用失败：${response.status} ${text.slice(0, 300)}`);
+      const detail = (await response.text()).slice(0, 300);
+      throw new KimiRequestError(response.status, `${KIMI_PROVIDER_LABEL} 调用失败：${response.status} ${detail}`);
     }
 
-    const payload = (await response.json()) as {
-      choices?: Array<{
-        message?: {
-          content?: string | Array<{ type?: string; text?: string }>;
-        };
-      }>;
-    };
-
+    const payload = (await response.json()) as KimiChatResponse;
     const content = payload.choices?.[0]?.message?.content;
-    if (Array.isArray(content)) {
-      return content.map((item) => item.text ?? "").join("\n");
-    }
-
-    return content ?? "";
+    if (Array.isArray(content)) return content.map((item) => item.text ?? "").join("\n");
+    if (!content) throw new Error(`${KIMI_PROVIDER_LABEL} 返回内容为空。`);
+    return content;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`${MIMO_PROVIDER_LABEL} 调用超时，请稍后重试。`);
+      throw new KimiRequestError(408, `${KIMI_PROVIDER_LABEL} 调用超过 45 秒，已超时。`);
     }
     throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+class KimiRequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "KimiRequestError";
+  }
+}
+
+function isRetryable(error: unknown) {
+  return error instanceof KimiRequestError && (error.status === 408 || error.status === 429 || error.status >= 500);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
 }
 
 function buildRuleSuggestionContext(document: NormalizedDocument) {

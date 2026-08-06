@@ -2,7 +2,7 @@ import type { ImportBatchCreatedEvent, ImportErrorCode, ImportParseEventEnvelope
 import { parseDocumentWithRule } from "@/lib/rule-engine";
 import { addLifecycleTrace, batchSkuLookup, claimBatch, claimFileParse, completeBatch, currentTaskOrderReceivers, existingExternalCodes, failBatch, failFileParse, getImportSource, getStagedRows, stageParsedRows } from "@/lib/server/async-import-storage";
 import { normalizeUploadedDocument } from "@/lib/server/document-parser";
-import { parseStructuredRowsWithMimo } from "@/lib/server/mimo";
+import { parseStructuredRowsWithKimi } from "@/lib/server/kimi";
 import { getRule } from "@/lib/server/storage";
 import type { RowIssue, ShipmentField, ShipmentRow } from "@/lib/types";
 import { validateShipmentRows } from "@/lib/validation";
@@ -24,7 +24,7 @@ export async function processImportFile(event: ImportParseEventEnvelope) {
     const parseDurationMs = Date.now() - parseStarted;
     const ruleStarted = Date.now();
     const parsed = await parseDocumentWithRule(document, rule, {
-      runLlmStructuredParse: (doc, currentRule) => parseStructuredRowsWithMimo({ document: doc, rule: currentRule }),
+      runLlmStructuredParse: (doc, currentRule) => parseStructuredRowsWithKimi({ document: doc, rule: currentRule }),
     });
     const confirmedRows = Array.isArray(source.confirmed_rows) ? source.confirmed_rows as ShipmentRow[] : null;
     return stageParsedRows(taskId, event.trace_id, confirmedRows?.length ? confirmedRows : parsed.rows, { parseDurationMs, ruleDurationMs: Date.now() - ruleStarted });

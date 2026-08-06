@@ -70,7 +70,8 @@ export const SIDEBAR_ITEMS = [
   "天易大数据平台",
 ];
 
-export const MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1";
-export const MIMO_MODEL = "mimo-v2.5-pro";
-export const MIMO_PROVIDER_LABEL = "小米 MiMo";
-export const MIMO_TIMEOUT_MS = 45_000;
+export const KIMI_BASE_URL = "https://api.moonshot.cn/v1";
+export const KIMI_MODEL = "kimi-k3";
+export const KIMI_PROVIDER_LABEL = "Moonshot Kimi";
+export const KIMI_TIMEOUT_MS = 45_000;
+export const KIMI_MAX_RETRIES = 2;
