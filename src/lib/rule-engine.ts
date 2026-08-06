@@ -102,11 +102,12 @@ function parseTabularExtractor(document: NormalizedDocument, rule: DocumentRule,
 
   for (const sheet of selectSheets(document, extractor.sheetSelector)) {
     const header = sheet.rows[extractor.headerRow - 1] ?? [];
+    const textScope = joinRows(sheet.rows);
     const shared = resolveSharedMappings(extractor.sharedMappings, {
       sheet,
       header,
       rowsScope: sheet.rows,
-      textScope: joinRows(sheet.rows),
+      textScope,
     });
 
     for (let rowIndex = extractor.dataStartRow - 1; rowIndex < sheet.rows.length; rowIndex += 1) {
@@ -127,7 +128,7 @@ function parseTabularExtractor(document: NormalizedDocument, rule: DocumentRule,
           header,
           currentRow,
           rowsScope: sheet.rows,
-          textScope: joinRows(sheet.rows),
+          textScope,
         }),
       });
 
@@ -149,11 +150,12 @@ function parseMatrixColumnsExtractor(
 
   for (const sheet of selectSheets(document, extractor.sheetSelector)) {
     const header = sheet.rows[extractor.headerRow - 1] ?? [];
+    const textScope = joinRows(sheet.rows);
     const shared = resolveSharedMappings(extractor.sharedMappings, {
       sheet,
       header,
       rowsScope: sheet.rows,
-      textScope: joinRows(sheet.rows),
+      textScope,
     });
 
     for (let rowIndex = extractor.dataStartRow - 1; rowIndex < sheet.rows.length; rowIndex += 1) {
@@ -172,7 +174,7 @@ function parseMatrixColumnsExtractor(
         header,
         currentRow,
         rowsScope: sheet.rows,
-        textScope: joinRows(sheet.rows),
+        textScope,
       });
 
       const dynamicEnd = extractor.dynamicColumnEnd ?? sheet.columnCount;
@@ -196,7 +198,7 @@ function parseMatrixColumnsExtractor(
           header,
           currentRow,
           rowsScope: sheet.rows,
-          textScope: joinRows(sheet.rows),
+          textScope,
           dynamicHeader,
         });
 
@@ -265,6 +267,7 @@ function parseCardBlocksExtractor(
     blockStarts.forEach((blockStart, blockIndex) => {
       const blockEnd = blockStarts[blockIndex + 1] ?? sheet.rows.length;
       const blockRows = sheet.rows.slice(blockStart, blockEnd);
+      const textScope = joinRows(blockRows);
       const headerRowIndex = blockRows.findIndex((row) => headerRegex.test(joinRow(row)));
 
       if (headerRowIndex < 0) {
@@ -276,7 +279,7 @@ function parseCardBlocksExtractor(
         sheet,
         header,
         rowsScope: blockRows,
-        textScope: joinRows(blockRows),
+        textScope,
       });
 
       for (let rowIndex = headerRowIndex + 1; rowIndex < blockRows.length; rowIndex += 1) {
@@ -292,7 +295,7 @@ function parseCardBlocksExtractor(
             header,
             currentRow,
             rowsScope: blockRows,
-            textScope: joinRows(blockRows),
+            textScope,
           }),
         });
 
