@@ -145,8 +145,6 @@ export async function failFileParse(taskId: string, traceId: string, message: st
 export async function stageParsedRows(taskId: string, traceId: string, rows: ShipmentRow[], durations: { parseDurationMs: number; ruleDurationMs: number }) {
   await ensureAsyncImportSchema();
   const sql = db();
-  const existing = await sql`select count(*)::int count from import_staged_rows where task_id=${taskId}`;
-  if (Number(existing[0]?.count) > 0) return { staged: Number(existing[0].count), duplicate: true };
   const records = rows.map((row, index) => ({ task_id: taskId, row_number: index + 1, payload: row }));
   const batches = Array.from({ length: Math.ceil(rows.length / IMPORT_BATCH_SIZE) }, (_, index) => ({
     unitId: `unit_${String(index + 1).padStart(4, "0")}`,
@@ -165,8 +163,21 @@ export async function stageParsedRows(taskId: string, traceId: string, rows: Shi
     await sql.transaction(() => statements);
     return { staged: 0, duplicate: false };
   }
+  for (const chunk of chunkRecords(records, IMPORT_BATCH_SIZE)) {
+    await sql`
+      with staged as (
+        insert into import_staged_rows(task_id,row_number,payload)
+        select x.task_id,x.row_number,x.payload
+        from jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) as x(task_id text,row_number int,payload jsonb)
+        on conflict(task_id,row_number) do update set payload=excluded.payload
+        returning 1
+      )
+      update import_tasks
+      set last_heartbeat_at=now()
+      where id=${taskId} and exists(select 1 from staged)
+    `;
+  }
   statements.push(sql`update import_tasks set total_rows=${rows.length},total_batches=${batches.length},parse_status='completed',parse_duration_ms=${durations.parseDurationMs},rule_duration_ms=${durations.ruleDurationMs},last_heartbeat_at=now() where id=${taskId}`);
-  if (records.length) statements.push(sql`insert into import_staged_rows(task_id,row_number,payload) select x.task_id,x.row_number,x.payload from jsonb_to_recordset(${JSON.stringify(records)}::jsonb) as x(task_id text,row_number int,payload jsonb)`);
   for (const batch of batches) {
     const event: ImportBatchCreatedEvent = lifecycleEvent({ eventType: "ImportBatchCreated", taskId, traceId, payload: { task_id: taskId, unit_id: batch.unitId, batch_index: batch.batchIndex, start_row: batch.startRow, end_row: batch.endRow } });
     statements.push(sql`insert into event_outbox(id,aggregate_id,event_type,payload) values(${event.event_id},${taskId},${event.event_type},${JSON.stringify(event)}::jsonb)`);
@@ -174,6 +185,13 @@ export async function stageParsedRows(taskId: string, traceId: string, rows: Shi
   statements.push(sql`insert into trace_events(id,trace_id,task_id,event_name,event_status,message,metadata) values(${makeId("trace")},${traceId},${taskId},'ImportFileParsed','success',${`文件完成一次解析，暂存 ${rows.length} 行`},${JSON.stringify({ rowCount: rows.length, batchCount: batches.length, ...durations })}::jsonb)`);
   await sql.transaction(() => statements);
   return { staged: rows.length, duplicate: false };
+}
+
+export function chunkRecords<T>(records: T[], size: number) {
+  if (!Number.isInteger(size) || size < 1) throw new Error("分块大小必须是正整数");
+  const chunks: T[][] = [];
+  for (let start = 0; start < records.length; start += size) chunks.push(records.slice(start, start + size));
+  return chunks;
 }
 
 export async function getStagedRows(taskId: string, startRow: number, endRow: number) {

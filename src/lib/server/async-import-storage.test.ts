@@ -20,7 +20,7 @@ const database = vi.hoisted(() => {
 vi.mock("@neondatabase/serverless", () => ({ neon: () => database.sql }));
 vi.mock("@/lib/server/storage", () => ({ ensureV2Schema: vi.fn() }));
 
-import { createImportTask, makeOrderPayload } from "@/lib/server/async-import-storage";
+import { chunkRecords, createImportTask, makeOrderPayload } from "@/lib/server/async-import-storage";
 import type { ShipmentRow } from "@/lib/types";
 
 const originalRuntimeMigration = process.env.ALLOW_RUNTIME_SCHEMA_MIGRATION;
@@ -69,6 +69,15 @@ describe("shipment order aggregation", () => {
         row_ids: ["row-1", "row-2"],
       }),
     ]);
+  });
+});
+
+describe("staged row chunking", () => {
+  it("splits a 10,000-row import into resumable 500-row writes", () => {
+    const chunks = chunkRecords(Array.from({ length: 10_000 }, (_, index) => index + 1), 500);
+    expect(chunks).toHaveLength(20);
+    expect(chunks.every((chunk) => chunk.length === 500)).toBe(true);
+    expect(chunks.flat()).toHaveLength(10_000);
   });
 });
 
