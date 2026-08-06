@@ -6,10 +6,13 @@ import { dispatchOutbox } from "@/lib/server/import-queue";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+async function recover(request: Request) {
   const rejection = rejectUnauthorizedCron(request);
   if (rejection) return rejection;
   const recovered = await recoverStaleBatches();
   const dispatched = await dispatchOutbox(new URL(request.url).origin);
   return NextResponse.json({ ...recovered, dispatched });
 }
+
+export const GET = recover;
+export const POST = recover;

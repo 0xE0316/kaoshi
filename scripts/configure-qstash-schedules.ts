@@ -20,7 +20,7 @@ async function main() {
     const created = await client.schedules.create({
       destination,
       cron: definition.cron,
-      method: "GET",
+      method: "POST",
       retries: 3,
       headers: { authorization: `Bearer ${cronSecret}` },
       label: ["kaoshi-v4", definition.label],

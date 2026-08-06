@@ -51,7 +51,7 @@ KIMI_BASE_URL=https://api.moonshot.cn/v1
 - `GET /api/traces?task_id=&trace_id=&file_name=&batch=&row_from=&row_to=&error_code=`：多维 Trace 检索。
 - `GET /api/import-monitor/summary`：真实监控聚合。
 - `GET|POST /api/import-dispatcher`：Outbox Dispatcher，生产使用 `CRON_SECRET`。
-- `GET /api/import-cron/recover`：卡死批次恢复和补投递。
+- `GET|POST /api/import-cron/recover`：卡死批次恢复和补投递。
 
 事件信封统一包含 `event_id`、`event_type`、`schema_version`、`aggregate_id`、`trace_id`、`occurred_at` 和 `payload`。已定义 `ImportTaskCreated`、`ImportBatchCreated`、`ImportBatchStarted`、`ImportBatchSucceeded`、`ImportBatchFailed`、`ImportTaskCompleted`、`ImportTaskPartialSuccess`、`ImportTaskDegraded`。新增字段保持向后兼容；重大语义变化升级 `schema_version`，消费者会校验必需字段并忽略未知字段。
 
