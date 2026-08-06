@@ -20,7 +20,8 @@ const database = vi.hoisted(() => {
 vi.mock("@neondatabase/serverless", () => ({ neon: () => database.sql }));
 vi.mock("@/lib/server/storage", () => ({ ensureV2Schema: vi.fn() }));
 
-import { createImportTask } from "@/lib/server/async-import-storage";
+import { createImportTask, makeOrderPayload } from "@/lib/server/async-import-storage";
+import type { ShipmentRow } from "@/lib/types";
 
 const originalRuntimeMigration = process.env.ALLOW_RUNTIME_SCHEMA_MIGRATION;
 const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -52,3 +53,38 @@ describe("async task transaction", () => {
     expect(JSON.stringify(outbox?.values)).toContain("ImportTaskCreated");
   });
 });
+
+describe("shipment order aggregation", () => {
+  it("persists the first batch with its real SKU count, quantity and row IDs", () => {
+    const rows = [
+      shipmentRow("row-1", "EXT-1", "SKU-1", "2"),
+      shipmentRow("row-2", "EXT-1", "SKU-2", "3"),
+    ].map((row, index) => ({ row, rowNumber: index + 1 }));
+
+    expect(makeOrderPayload("task-1", rows)).toEqual([
+      expect.objectContaining({
+        external_code: "EXT-1",
+        sku_count: 2,
+        total_qty: 5,
+        row_ids: ["row-1", "row-2"],
+      }),
+    ]);
+  });
+});
+
+function shipmentRow(id: string, externalCode: string, skuCode: string, skuQty: string): ShipmentRow {
+  return {
+    id,
+    externalCode,
+    storeName: "测试门店",
+    recipientName: "",
+    recipientPhone: "",
+    recipientAddress: "",
+    skuCode,
+    skuName: skuCode,
+    skuQty,
+    skuSpec: "",
+    temperatureZone: "常温",
+    remark: "",
+  };
+}

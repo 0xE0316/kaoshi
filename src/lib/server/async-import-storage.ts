@@ -231,6 +231,8 @@ type AsyncOrderPayload = {
   recipient_name: string;
   recipient_phone: string;
   recipient_address: string;
+  sku_count: number;
+  total_qty: number;
 };
 
 function stableOrderId(taskId: string, key: string) {
@@ -238,7 +240,7 @@ function stableOrderId(taskId: string, key: string) {
   return `${taskId}:order:${digest}`;
 }
 
-function makeOrderPayload(taskId: string, rows: Array<{ row: ShipmentRow; rowNumber: number }>) {
+export function makeOrderPayload(taskId: string, rows: Array<{ row: ShipmentRow; rowNumber: number }>) {
   const grouped = new Map<string, { order: AsyncOrderPayload; rowIds: string[] }>();
   for (const item of rows) {
     const externalCode = item.row.externalCode.trim() || null;
@@ -246,6 +248,8 @@ function makeOrderPayload(taskId: string, rows: Array<{ row: ShipmentRow; rowNum
     const current = grouped.get(key);
     if (current) {
       current.rowIds.push(item.row.id);
+      current.order.sku_count += 1;
+      current.order.total_qty += Number(item.row.skuQty);
       continue;
     }
     grouped.set(key, {
@@ -256,6 +260,8 @@ function makeOrderPayload(taskId: string, rows: Array<{ row: ShipmentRow; rowNum
         recipient_name: item.row.recipientName,
         recipient_phone: item.row.recipientPhone,
         recipient_address: item.row.recipientAddress,
+        sku_count: 1,
+        total_qty: Number(item.row.skuQty),
       },
       rowIds: [item.row.id],
     });
@@ -291,7 +297,8 @@ async function persistRowsToV2(input: {
   const orderPayload = makeOrderPayload(input.taskId, input.rows);
   const result = await sql`
     with incoming_orders as (
-      select x.id, x.external_code, x.store_name, x.recipient_name, x.recipient_phone, x.recipient_address
+      select x.id, x.external_code, x.store_name, x.recipient_name, x.recipient_phone,
+        x.recipient_address, x.sku_count, x.total_qty, x.row_ids
       from jsonb_to_recordset(${JSON.stringify(orderPayload)}::jsonb) as x(
         id text,
         external_code text,
@@ -299,6 +306,8 @@ async function persistRowsToV2(input: {
         recipient_name text,
         recipient_phone text,
         recipient_address text,
+        sku_count integer,
+        total_qty numeric,
         row_ids jsonb
       )
     ),
@@ -321,9 +330,9 @@ async function persistRowsToV2(input: {
         io.recipient_name,
         io.recipient_phone,
         io.recipient_address,
-        0,
-        0,
-        '[]'::jsonb,
+        io.sku_count,
+        io.total_qty,
+        io.row_ids,
         jsonb_build_object(
           'id', io.id,
           'externalCode', io.external_code,
@@ -331,9 +340,9 @@ async function persistRowsToV2(input: {
           'recipientName', io.recipient_name,
           'recipientPhone', io.recipient_phone,
           'recipientAddress', io.recipient_address,
-          'skuCount', 0,
-          'totalQty', 0,
-          'rowIds', '[]'::jsonb
+          'skuCount', io.sku_count,
+          'totalQty', io.total_qty,
+          'rowIds', io.row_ids
         )
       from incoming_orders io
       cross join ensure_batch
